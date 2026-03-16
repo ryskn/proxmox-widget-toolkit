@@ -21,7 +21,12 @@ Ext.define('Proxmox.node.NetworkEdit', {
 
         me.isCreate = !me.iface;
 
+        // Canonical set of VPP interface types — used to gate autostart,
+        // IP config, MTU, and other kernel-only fields.
+        const vppTypes = new Set(['VPPBridge', 'VPPVlan']);
+
         let iface_vtype;
+        let iface_validator; // optional extra validator for the Name field
 
         if (me.iftype === 'bridge') {
             iface_vtype = 'BridgeName';
@@ -39,6 +44,12 @@ Ext.define('Proxmox.node.NetworkEdit', {
             iface_vtype = 'InterfaceName';
         } else if (me.iftype === 'OVSPort') {
             iface_vtype = 'InterfaceName';
+        } else if (me.iftype === 'VPPBridge') {
+            iface_vtype = 'InterfaceName';
+            iface_validator = (v) =>
+                /^vppbr\d+$/.test(v) || gettext('Name must match vppbrN format (e.g. vppbr1)');
+        } else if (me.iftype === 'VPPVlan') {
+            iface_vtype = 'VlanName';
         } else {
             console.log(me.iftype);
             throw 'unknown network device type specified';
@@ -52,7 +63,7 @@ Ext.define('Proxmox.node.NetworkEdit', {
             advancedColumn1 = [],
             advancedColumn2 = [];
 
-        if (!(me.iftype === 'OVSIntPort' || me.iftype === 'OVSPort' || me.iftype === 'OVSBond')) {
+        if (!(me.iftype === 'OVSIntPort' || me.iftype === 'OVSPort' || me.iftype === 'OVSBond' || vppTypes.has(me.iftype))) {
             column2.push({
                 xtype: 'proxmoxcheckbox',
                 fieldLabel: gettext('Autostart'),
@@ -295,6 +306,32 @@ Ext.define('Proxmox.node.NetworkEdit', {
                 fieldLabel: gettext('OVS options'),
                 name: 'ovs_options',
             });
+        } else if (me.iftype === 'VPPBridge') {
+            column2.push({
+                xtype: 'proxmoxcheckbox',
+                fieldLabel: gettext('VLAN aware'),
+                name: 'vpp_vlan_aware',
+                deleteEmpty: !me.isCreate,
+            });
+        } else if (me.iftype === 'VPPVlan') {
+            column2.push({
+                xtype: 'displayfield',
+                userCls: 'pmx-hint',
+                value: gettext('Name format: <parent>.<vlan-id>, e.g. tap0.100'),
+            });
+            column2.push({
+                xtype: me.isCreate ? 'textfield' : 'displayfield',
+                fieldLabel: gettext('Bridge domain'),
+                name: 'vpp_bridge',
+                emptyText: gettext('none'),
+                allowBlank: true,
+                validator: (v) =>
+                    !v || /^vppbr\d+$/.test(v) || gettext('Must match vppbrN format (e.g. vppbr1)'),
+                autoEl: {
+                    tag: 'div',
+                    'data-qtip': gettext('VPP bridge domain to attach this VLAN interface to, e.g. vppbr1'),
+                },
+            });
         }
 
         column2.push({
@@ -328,8 +365,9 @@ Ext.define('Proxmox.node.NetworkEdit', {
                 name: 'iface',
                 value: me.iface,
                 vtype: iface_vtype,
+                validator: iface_validator,
                 allowBlank: false,
-                maxLength: iface_vtype === 'BridgeName' ? 10 : 15,
+                maxLength: iface_vtype === 'BridgeName' ? 10 : (vppTypes.has(me.iftype) ? 40 : 15),
                 autoEl: {
                     tag: 'div',
                     'data-qtip': gettext('For example, vmbr0.100, vmbr0, vlan0.100, vlan0'),
@@ -391,6 +429,8 @@ Ext.define('Proxmox.node.NetworkEdit', {
                     name: 'ovs_bonds',
                 },
             );
+        } else if (vppTypes.has(me.iftype)) {
+            // VPP interfaces do not use kernel IP configuration
         } else {
             column1.push(
                 {
@@ -423,15 +463,17 @@ Ext.define('Proxmox.node.NetworkEdit', {
                 },
             );
         }
-        advancedColumn1.push({
-            xtype: 'proxmoxintegerfield',
-            minValue: 1280,
-            maxValue: 65520,
-            deleteEmpty: !me.isCreate,
-            emptyText: 1500,
-            fieldLabel: 'MTU',
-            name: 'mtu',
-        });
+        if (!vppTypes.has(me.iftype)) {
+            advancedColumn1.push({
+                xtype: 'proxmoxintegerfield',
+                minValue: 1280,
+                maxValue: 65520,
+                deleteEmpty: !me.isCreate,
+                emptyText: 1500,
+                fieldLabel: 'MTU',
+                name: 'mtu',
+            });
+        }
 
         Ext.applyIf(me, {
             url: url,

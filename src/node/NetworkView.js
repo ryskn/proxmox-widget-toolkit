@@ -19,6 +19,8 @@ Ext.define('proxmox-networks', {
         'type',
         'vlan-id',
         'vlan-raw-device',
+        'vpp_bridge',
+        'vpp_vlan_aware',
     ],
     idProperty: 'iface',
 });
@@ -30,7 +32,7 @@ Ext.define('Proxmox.node.NetworkView', {
 
     // defines what types of network devices we want to create
     // order is always the same
-    types: ['bridge', 'bond', 'vlan', 'ovs'],
+    types: ['bridge', 'bond', 'vlan', 'ovs', 'vpp'],
 
     showApplyBtn: false,
 
@@ -223,6 +225,27 @@ Ext.define('Proxmox.node.NetworkView', {
             });
         }
 
+        if (me.types.indexOf('vpp') !== -1) {
+            if (menu_items.length > 0) {
+                menu_items.push({ xtype: 'menuseparator' });
+            }
+
+            addEditWindowToMenu('VPPBridge', 'vppbr');
+            menu_items.push({
+                text: Proxmox.Utils.render_network_iface_type('VPPVlan'),
+                handler: () =>
+                    Ext.create('Proxmox.node.NetworkEdit', {
+                        autoShow: true,
+                        nodename: me.nodename,
+                        iftype: 'VPPVlan',
+                        ...me.editOptions,
+                        listeners: {
+                            destroy: () => reload(),
+                        },
+                    }),
+            });
+        }
+
         let renderer_generator = function (fieldname) {
             return function (val, metaData, rec) {
                 let tmp = [];
@@ -326,14 +349,14 @@ Ext.define('Proxmox.node.NetworkView', {
                             undefinedText: Proxmox.Utils.noText,
                         },
                         {
-                            xtype: 'booleancolumn',
                             header: gettext('VLAN aware'),
                             width: 80,
                             sortable: true,
                             dataIndex: 'bridge_vlan_aware',
-                            trueText: Proxmox.Utils.yesText,
-                            falseText: Proxmox.Utils.noText,
-                            undefinedText: Proxmox.Utils.noText,
+                            renderer: (value, metaData, { data }) => {
+                                const v = data.bridge_vlan_aware || data.vpp_vlan_aware;
+                                return v ? Proxmox.Utils.yesText : Proxmox.Utils.noText;
+                            },
                         },
                         {
                             header: gettext('Ports/Slaves'),
@@ -347,6 +370,8 @@ Ext.define('Proxmox.node.NetworkView', {
                                     return data.ovs_ports;
                                 } else if (value === 'OVSBond') {
                                     return data.ovs_bonds;
+                                } else if (value === 'VPPVlan') {
+                                    return data['vlan-raw-device'];
                                 }
                                 return '';
                             },

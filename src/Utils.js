@@ -707,6 +707,8 @@ Ext.define('Proxmox.Utils', {
             OVSBond: 'OVS Bond',
             OVSPort: 'OVS Port',
             OVSIntPort: 'OVS IntPort',
+            VPPBridge: gettext('VPP Bridge'),
+            VPPVlan: gettext('VPP VLAN'),
         },
 
         render_network_iface_type: function (value) {
